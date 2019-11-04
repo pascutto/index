@@ -405,6 +405,9 @@ module Make (K : Key) (V : Value) (IO : IO) = struct
           no_changes ()
         else if force then (
           Log.debug (fun l -> l "[%s] force sync" (Filename.basename t.root));
+          Tbl.clear log.mem;
+          iter_io add_log_entry log.io;
+          may (fun (i : index) -> IO.close i.io) t.index;
           let index_path = index_path t.root in
           if Sys.file_exists index_path then
             let io =
@@ -634,7 +637,8 @@ module Make (K : Key) (V : Value) (IO : IO) = struct
   let force_merge ?hook t =
     let t = check_open t in
     Log.info (fun l -> l "[%s] forced merge" (Filename.basename t.root));
-    match get_witness t with
+    let witness = IO.Mutex.with_lock t.rename_lock (fun () -> get_witness t) in
+    match witness with
     | None ->
         Log.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root))
     | Some witness -> merge ?hook ~witness t
