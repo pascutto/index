@@ -5,3 +5,5 @@ COPY   .  index
 WORKDIR index
 RUN opam install -y --deps-only -t .
 RUN eval $(opam env)
+
+RUN dune exec -- bench/main.exe -b all
