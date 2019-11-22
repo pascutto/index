@@ -1,3 +1,20 @@
+(* The MIT License
+
+Copyright (c) 2019 Craig Ferguson <craig@tarides.com>
+                   Thomas Gazagnaire <thomas@tarides.com>
+                   Ioana Cristescu <ioana@tarides.com>
+                   Clément Pascutto <clement@tarides.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software. *)
+
 let src = Logs.Src.create "index_unix" ~doc:"Index_unix"
 
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -51,6 +68,8 @@ module IO : Index.IO = struct
     in
     get_uint64 buf 0
 
+  exception Bad_Read
+
   module Raw = struct
     type t = { fd : Unix.file_descr; mutable cursor : int64 }
 
@@ -89,7 +108,10 @@ module IO : Index.IO = struct
       stats.nb_writes <- succ stats.nb_writes
 
     let unsafe_read t ~off ~len buf =
-      let n = really_read t.fd off len buf in
+      let n =
+        try really_read t.fd off len buf
+        with Unix.Unix_error (Unix.EBADF, "read", "") -> raise Bad_Read
+      in
       t.cursor <- off ++ Int64.of_int n;
       stats.bytes_read <- stats.bytes_read + n;
       stats.nb_reads <- succ stats.nb_reads;
@@ -175,16 +197,8 @@ module IO : Index.IO = struct
     else (
       Raw.unsafe_write t.raw ~off:t.flushed buf;
       Raw.Offset.set t.raw offset;
-
-      (* concurrent append might happen so here t.offset might differ
-         from offset *)
-      if
-        not (t.flushed ++ Int64.of_int (String.length buf) = t.header ++ offset)
-      then
-        Fmt.failwith "sync error: %s flushed=%Ld buf=%Ld offset+header=%Ld\n%!"
-          t.file t.flushed
-          (Int64.of_int (String.length buf))
-          (offset ++ t.header);
+      assert (
+        t.flushed ++ Int64.of_int (String.length buf) = t.header ++ offset );
       t.flushed <- offset ++ t.header )
 
   let name t = t.file
@@ -193,13 +207,16 @@ module IO : Index.IO = struct
     sync src;
     Unix.close dst.raw.fd;
     Unix.rename src.file dst.file;
+    Buffer.clear dst.buf;
     dst.header <- src.header;
     dst.fan_size <- src.fan_size;
     dst.offset <- src.offset;
     dst.flushed <- src.flushed;
     dst.raw <- src.raw
 
-  let close t = Unix.close t.raw.fd
+  let close t =
+    if not t.readonly then Buffer.clear t.buf;
+    Unix.close t.raw.fd
 
   let auto_flush_limit = 1_000_000L
 
@@ -222,9 +239,14 @@ module IO : Index.IO = struct
 
   let version t = t.version
 
-  let get_generation t = Raw.Generation.get t.raw
+  let get_generation t =
+    let i = Raw.Generation.get t.raw in
+    Log.debug (fun m -> m "get_generation: %Ld" i);
+    i
 
-  let set_generation t = Raw.Generation.set t.raw
+  let set_generation t i =
+    Log.debug (fun m -> m "set_generation: %Ld" i);
+    Raw.Generation.set t.raw i
 
   let get_fanout t = Raw.Fan.get t.raw
 
@@ -257,10 +279,10 @@ module IO : Index.IO = struct
     in
     (aux [@tailcall]) dirname (fun () -> ())
 
-  let clear t =
+  let clear ?(keep_generation = false) t =
     t.offset <- 0L;
     t.flushed <- t.header;
-    Raw.Generation.set t.raw 0L;
+    if not keep_generation then Raw.Generation.set t.raw 0L;
     Raw.Offset.set t.raw t.offset;
     Raw.Fan.set t.raw "";
     Buffer.clear t.buf
@@ -268,10 +290,7 @@ module IO : Index.IO = struct
   let buffers = Hashtbl.create 256
 
   let buffer file =
-    try
-      let buf = Hashtbl.find buffers file in
-      Buffer.clear buf;
-      buf
+    try Hashtbl.find buffers file
     with Not_found ->
       let buf = Buffer.create (4 * 1024) in
       Hashtbl.add buffers file buf;
@@ -366,6 +385,22 @@ module IO : Index.IO = struct
   let unlock { path; fd } =
     Log.debug (fun l -> l "Unlocking %s" path);
     Unix.close fd
+
+  module Mutex = struct
+    include Mutex
+
+    let with_lock t f =
+      Mutex.lock t;
+      try
+        let ans = f () in
+        Mutex.unlock t;
+        ans
+      with e ->
+        Mutex.unlock t;
+        raise e
+  end
+
+  let async f = ignore (Thread.create f ())
 end
 
 module Make (K : Index.Key) (V : Index.Value) = Index.Make (K) (V) (IO)
