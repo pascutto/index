@@ -1,29 +1,10 @@
 (** Benchmarks *)
 
 open Common
-open Rresult
 
 let src = Logs.Src.create "db_bench"
 
 module Log = (val Logs.src_log src : Logs.LOG)
-
-let all = ref false
-
-and with_lmdb = ref false
-
-and with_index = ref false
-
-let speclist =
-  [
-    ("-all", Arg.Set all, "run all benchmarks");
-    ("-lmdb", Arg.Set with_lmdb, "run the lmdb benchmarks");
-    ("-index", Arg.Set with_index, "run the index benchmarks");
-  ]
-
-let usage =
-  "usage: " ^ Sys.argv.(0)
-  ^ " [-all | -lmdb | -index], if no argument provided then minimal index \
-     benchmarks are run"
 
 let seed = 1
 
@@ -102,9 +83,7 @@ module Index = struct
     let ratio_bytes =
       float_of_int stats.bytes_written /. float_of_int (entry_size * nb_entries)
     in
-    let ratio_reads =
-      float_of_int stats.nb_writes /. float_of_int nb_entries
-    in
+    let ratio_reads = float_of_int stats.nb_writes /. float_of_int nb_entries in
     Log.app (fun l ->
         l "\twrite amplification in bytes = %f; in nb of writes = %f; "
           ratio_bytes ratio_reads)
@@ -116,8 +95,8 @@ module Index = struct
     in
     let ratio_reads = float_of_int stats.nb_reads /. float_of_int nb_entries in
     Log.app (fun l ->
-        l "\tread amplification in bytes = %f; in nb of reads = %f "
-          ratio_bytes ratio_reads)
+        l "\tread amplification in bytes = %f; in nb of reads = %f " ratio_bytes
+          ratio_reads)
 
   let init () =
     if Sys.file_exists root then (
@@ -219,188 +198,127 @@ module Index = struct
   let close rw = Index.close rw
 end
 
-module Lmdb = struct
-  open Lmdb
-
-  let root = "/tmp"
-
-  let print_results = print_results "lmdb "
-
-  let print_stats (txn, ddb) =
-    let stats = R.get_ok (db_stat txn ddb) in
-    Log.app (fun l ->
-        l
-          "psize = %d; depth= %d; branch_pages= %d; leaf_pages= %d; \
-           overflow_pages= %d; entries= %d;"
-          stats.psize stats.depth stats.branch_pages stats.leaf_pages
-          stats.overflow_pages stats.entries)
-
-  let cleanup () =
-    let files = [ root // "data.mdb"; root // "lock.mdb" ] in
-    ListLabels.iter files ~f:(fun fn -> Sys.(if file_exists fn then remove fn))
-
-  let fail_on_error f =
-    match f () with Ok _ -> () | Error err -> failwith (string_of_error err)
-
-  let flags = [ Lmdb.NoRdAhead; Lmdb.NoSync; Lmdb.NoMetaSync; Lmdb.NoTLS ]
-
-  let mapsize = 409_600_000_000L
-
-  let get_wtxn dir flags =
-    cleanup ();
-    opendir dir ~mapsize ~flags 0o644 >>= fun env ->
-    create_rw_txn env >>= fun txn ->
-    opendb txn >>= fun ddb -> Ok ((txn, ddb), env)
-
-  let write (txn, ddb) () =
-    Array.iter
-      (fun (k, v) -> fail_on_error (fun () -> Lmdb.put_string txn ddb k v))
-      random
-
-  let read (txn, ddb) () =
-    Array.iter
-      (fun (k, _) ->
-        ignore (Bigstring.to_string (R.get_ok (Lmdb.get txn ddb k))))
-      random
-
-  let write_random () =
-    get_wtxn root flags >>| fun (rw, env) ->
-    print_results (write rw) nb_entries;
-    print_stats rw;
-    (rw, env)
-
-  let write_seq () =
-    Array.sort (fun a b -> String.compare (fst a) (fst b)) random;
-    get_wtxn root flags >>| fun (rw, env) ->
-    print_results (write rw) nb_entries;
-    closedir env
-
-  let write_sync () =
-    get_wtxn root [ Lmdb.NoRdAhead ] >>| fun (rw, env) ->
-    let write (txn, ddb) env ls () =
-      Array.iter
-        (fun (k, v) ->
-          fail_on_error (fun () ->
-              Lmdb.put_string txn ddb k v >>= fun () -> sync env))
-        ls
-    in
-    print_results (write rw env random) nb_entries;
-    closedir env
-
-  let overwrite rw = print_results (write rw) nb_entries
-
-  let read_random r = print_results (read r) nb_entries
-
-  (*use a new db, created without the flag Lmdb.NoRdAhead*)
-  let read_seq () =
-    let rw, env =
-      R.get_ok
-        ( get_wtxn root [ Lmdb.NoSync; Lmdb.NoMetaSync ] >>| fun (rw, env) ->
-          let () = write rw () in
-          (rw, env) )
-    in
-    let read (txn, ddb) () =
-      opencursor txn ddb >>= fun cursor ->
-      cursor_first cursor >>= fun () ->
-      cursor_iter
-        ~f:(fun (k, v) ->
-          ignore (Bigstring.to_string k);
-          ignore (Bigstring.to_string v);
-          Ok ())
-        cursor
-      >>| fun () -> cursor_close cursor
-    in
-    let aux_read r () = fail_on_error (read r) in
-    print_results (aux_read rw) nb_entries;
-    closedir env
-
-  let close env = closedir env
-end
-
 let init () =
   Common.report ();
   Index.init ();
-  Lmdb.cleanup ();
   Log.app (fun l -> l "Keys: %d bytes each." key_size);
   Log.app (fun l -> l "Values: %d bytes each." value_size);
   Log.app (fun l -> l "Entries: %d." nb_entries);
   Log.app (fun l -> l "Log size: %d." log_size);
   populate ()
 
-let index_main () =
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in increasing order of keys");
-  Index.write_seq ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in increasing order of hashes");
-  Index.write_seq_hash ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in decreasing order of hashes");
-  Index.write_rev_seq_hash ();
-  populate ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in random order and sync after each write");
-  Index.write_sync ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in random order");
-  let rw = Index.write_random () in
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Read in random order ");
-  Index.read_random rw;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l ->
-      l
-        "Read in sequential order (increasing order of hashes for index, \
-         increasing order of keys for lmdb)");
-  Index.read_seq rw;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Overwrite");
-  Index.overwrite rw;
-  Index.close rw
+open Cmdliner
 
-let lmdb_main () =
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in increasing order of keys");
-  Lmdb.fail_on_error Lmdb.write_seq;
-  populate ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in random order and sync after each write");
-  Lmdb.fail_on_error Lmdb.write_sync;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in random order");
-  let lmdb, env = R.get_ok (Lmdb.write_random ()) in
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Read in random order ");
-  Lmdb.read_random lmdb;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l ->
-      l
-        "Read in sequential order (increasing order of hashes for index, \
-         increasing order of keys for lmdb)");
-  Lmdb.read_seq ();
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Overwrite");
-  Lmdb.overwrite lmdb;
-  Lmdb.close env
-
-let minimal_benchs () =
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Fill in random order");
-  let rw = Index.write_random () in
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "RW Read in random order ");
-  Index.read_random rw;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "RO Read in random order");
-  Index.ro_read_random rw;
-  Log.app (fun l -> l "\n");
-  Log.app (fun l -> l "Read 1000 absent values");
-  Index.read_absent rw;
-  Index.close rw
-
-let () =
-  Arg.parse speclist ignore usage;
+let run input =
   init ();
-  if !all || !with_index then index_main ();
-  if !all || !with_lmdb then lmdb_main ();
-  if not (!all || !with_lmdb || !with_index) then minimal_benchs ()
+  Log.app (fun l -> l "\n");
+  Log.app (fun l -> l "Fill in random order");
+  let rw = Index.write_random () in
+  let () =
+    match input with
+    | `Find `RW | `IndexAll | `All | `Minimal ->
+        let () = Log.app (fun l -> l "\n RW Read in random order") in
+        Index.read_random rw
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Find `RO | `IndexAll | `All | `Minimal ->
+        let () = Log.app (fun l -> l "\n RO Read in random order") in
+        Index.ro_read_random rw
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Find `Absent | `IndexAll | `All | `Minimal ->
+        let () = Log.app (fun l -> l "\n Read 1000 absent values") in
+        Index.read_absent rw
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Find `Seq | `IndexAll | `All ->
+        let () =
+          Log.app (fun l ->
+              l
+                "\n\
+                 Read in sequential order (increasing order of hashes for \
+                 index, increasing order of keys for lmdb)")
+        in
+        Index.read_seq rw
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Write `IncKey | `All ->
+        let () = Log.app (fun l -> l "\n Fill in increasing order of keys") in
+        Index.write_seq ()
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Write `IncHash | `All ->
+        let () =
+          Log.app (fun l -> l "\n Fill in increasing order of hashes")
+        in
+        Index.write_seq_hash ()
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Write `DecHash | `All ->
+        let () =
+          Log.app (fun l -> l "\n Fill in decreasing order of hashes")
+        in
+        Index.write_rev_seq_hash ()
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `Write `Sync | `All ->
+        let () =
+          Log.app (fun l ->
+              l "\n Fill in random order and sync after each write")
+        in
+        Index.write_sync ()
+    | _ -> ()
+  in
+  let () =
+    match input with
+    | `OverWrite | `All ->
+        let () = Log.app (fun l -> l "\n Overwrite") in
+        Index.overwrite rw
+    | _ -> ()
+  in
+  Index.close rw
+
+let input =
+  let doc =
+    "Select which benchmark(s) to run. Available options are: `write`, \
+     `write-keys`, `write-hashes`, `write-dec`, `find-rw`, `find-ro` , \
+     `find-seq`,  `find-absent`, `overwrite`, `minimal`or `all`. Default \
+     option is `minimal`"
+  in
+  let options =
+    Arg.enum
+      [
+        ("all", `All);
+        ("minimal", `Minimal);
+        ("find-rw", `Find `RW);
+        ("find-ro", `Find `RO);
+        ("find-seq", `Find `Seq);
+        ("find-absent", `Find `Absent);
+        ("write-keys", `Write `IncKey);
+        ("write-hashes", `Write `IncHash);
+        ("write-dec", `Write `DecHash);
+        ("write-sync", `Write `Sync);
+        ("overwrite", `OverWrite);
+      ]
+  in
+  Arg.(value & opt options `Minimal & info [ "b"; "bench" ] ~doc)
+
+let cmd =
+  let doc = "Specify the benchmark you want to run." in
+  (Term.(const run $ input), Term.info "run" ~doc ~exits:Term.default_exits)
+
+let () = Term.(exit @@ eval cmd)
