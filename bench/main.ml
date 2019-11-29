@@ -25,14 +25,14 @@ end)
 
 module Index = Index_unix.Make (Context.Key) (Context.Value)
 
-(* let pp_stats ppf (count, max) =
-  Fmt.pf ppf "\t%4dk/%dk" (count / 1000) (max / 1000) *)
+let pp_stats ppf (count, max) =
+  Fmt.pf ppf "\t%4dk/%dk" (count / 1000) (max / 1000)
 
 let rec replaces t bindings i =
   if i = 0 then bindings
   else
-(*     let count = index_size - i in
-    if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size); *)
+    let count = index_size - i in
+    if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size);
     let k, v = (Context.Key.v (), Context.Value.v ()) in
     Index.replace t k v;
     replaces t ((k, v) :: bindings) (i - 1)
@@ -40,36 +40,37 @@ let rec replaces t bindings i =
 let rec finds t count = function
   | [] -> ()
   | (k, _) :: tl ->
-(*       if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size); *)
+      if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size);
       ignore (Index.find t k);
       finds t (count + 1) tl
 
 let run input =
   Fmt.epr "Adding %d bindings.\n%!" index_size;
   let rw = Index.v ~fresh:true ~log_size index_name in
+  let oc = open_out "output.json" in
   let bindings =
     match input with
     | `Write | `All ->
         let bindings, t1 = with_timer (fun () -> replaces rw [] index_size) in
-        Fmt.epr "\n%d bindings added in %fs.\n%!" index_size t1;
+        Printf.fprintf oc " write %fs; \n" t1; 
         bindings
     | _ -> replaces rw [] index_size
   in
-  Fmt.epr "Finding %d bindings.\n%!" index_size;
+  Fmt.epr "\n Finding %d bindings.\n%!" index_size;
   let () =
     match input with
     | `Find `RW | `All ->
         let (), t2 = with_timer (fun () -> finds rw 0 bindings) in
-        Fmt.epr "\n%d bindings found in %fs (RW).\n%!" index_size t2
+        Printf.fprintf oc "read_write %fs; \n" t2
     | _ -> ()
   in
   let () =
     match input with
-    | `Find `RW | `All ->
+    | `Find `RO| `All ->
         let ro = Index.v ~readonly:true ~log_size index_name in
         let (), t3 = with_timer (fun () -> finds ro 0 bindings) in
         Index.close ro;
-        Fmt.epr "\n%d bindings found in %fs (RO).\n%!" index_size t3
+        Printf.fprintf oc "read_only %fs; \n" t3
     | _ -> ()
   in
   Index.close rw
