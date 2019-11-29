@@ -25,14 +25,14 @@ end)
 
 module Index = Index_unix.Make (Context.Key) (Context.Value)
 
-let pp_stats ppf (count, max) =
-  Fmt.pf ppf "\t%4dk/%dk" (count / 1000) (max / 1000)
+(* let pp_stats ppf (count, max) =
+  Fmt.pf ppf "\t%4dk/%dk" (count / 1000) (max / 1000) *)
 
 let rec replaces t bindings i =
   if i = 0 then bindings
   else
-    let count = index_size - i in
-    if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size);
+(*     let count = index_size - i in
+    if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size); *)
     let k, v = (Context.Key.v (), Context.Value.v ()) in
     Index.replace t k v;
     replaces t ((k, v) :: bindings) (i - 1)
@@ -40,7 +40,7 @@ let rec replaces t bindings i =
 let rec finds t count = function
   | [] -> ()
   | (k, _) :: tl ->
-      if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size);
+(*       if count mod 1_000 = 0 then Fmt.epr "\r%a%!" pp_stats (count, index_size); *)
       ignore (Index.find t k);
       finds t (count + 1) tl
 
