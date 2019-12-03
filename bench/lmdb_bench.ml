@@ -163,58 +163,53 @@ let init () =
   Log.app (fun l -> l "Log size: %d." log_size);
   populate ()
 
-open Cmdliner
-
 let run input =
   init ();
   Log.app (fun l -> l "\n Fill in random order");
   let lmdb, env = R.get_ok (Lmdb.write_random ()) in
-  let () =
-    match input with
-    | `Read | `All ->
-        let () = Log.app (fun l -> l "\n Read in random order ") in
-        Lmdb.read_random lmdb
-    | _ -> ()
+  let match_input ~bench ~triggers ~message =
+    List.iter
+      (fun trigger ->
+        if input = trigger then
+          let () = Log.app (fun l -> l "\n %s" message) in
+          bench ()
+        else ())
+      triggers
   in
   let () =
-    match input with
-    | `ReadSeq | `All ->
-        let () =
-          Log.app (fun l ->
-              l
-                "\n\
-                 Read in sequential order (increasing order of hashes for \
-                 index, increasing order of keys for lmdb)")
-        in
-        Lmdb.read_seq ()
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Lmdb.read_random lmdb)
+      ~triggers:[ `Read; `All ] ~message:"Read in random order"
   in
   let () =
-    match input with
-    | `OverWrite | `All ->
-        let () = Log.app (fun l -> l "\n Overwrite") in
-        Lmdb.overwrite lmdb
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Lmdb.read_seq ())
+      ~triggers:[ `ReadSeq; `All ]
+      ~message:
+        "Read in sequential order (increasing order of hashes for index, \
+         increasing order of keys for lmdb)"
   in
   let () =
-    match input with
-    | `WriteSync | `All ->
-        let () =
-          Log.app (fun l ->
-              l "\n Fill in random order and sync after each write")
-        in
-        Lmdb.fail_on_error Lmdb.write_sync
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Lmdb.overwrite lmdb)
+      ~triggers:[ `Read; `All ] ~message:"Overwrite"
   in
   let () =
-    match input with
-    | `WriteSeq | `All ->
-        let () = Log.app (fun l -> l "\n Fill in increasing order of keys") in
+    match_input
+      ~bench:(fun () -> Lmdb.fail_on_error Lmdb.write_sync)
+      ~triggers:[ `WriteSync; `All ]
+      ~message:"Fill in random order and sync after each write"
+  in
+  let () =
+    match_input
+      ~bench:(fun () ->
         Lmdb.fail_on_error Lmdb.write_seq;
-        populate ()
-    | _ -> ()
+        populate ())
+      ~triggers:[ `WriteSeq; `All ] ~message:"Fill in increasing order of keys"
   in
   Lmdb.close env
+
+open Cmdliner
 
 let input =
   let doc =

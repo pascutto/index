@@ -207,90 +207,78 @@ let init () =
   Log.app (fun l -> l "Log size: %d." log_size);
   populate ()
 
-open Cmdliner
-
 let run input =
   init ();
   Log.app (fun l -> l "\n");
   Log.app (fun l -> l "Fill in random order");
   let rw = Index.write_random () in
-  let () =
-    match input with
-    | `Find `RW | `IndexAll | `All | `Minimal ->
-        let () = Log.app (fun l -> l "\n RW Read in random order") in
-        Index.read_random rw
-    | _ -> ()
+  let match_input ~bench ~triggers ~message =
+    List.iter
+      (fun trigger ->
+        if input = trigger then
+          let () = Log.app (fun l -> l "\n %s" message) in
+          bench ()
+        else ())
+      triggers
   in
   let () =
-    match input with
-    | `Find `RO | `IndexAll | `All | `Minimal ->
-        let () = Log.app (fun l -> l "\n RO Read in random order") in
-        Index.ro_read_random rw
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.read_random rw)
+      ~triggers:[ `Find `RW; `All; `Minimal ]
+      ~message:"RW Read in random order"
   in
   let () =
-    match input with
-    | `Find `Absent | `IndexAll | `All | `Minimal ->
-        let () = Log.app (fun l -> l "\n Read 1000 absent values") in
-        Index.read_absent rw
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.ro_read_random rw)
+      ~triggers:[ `Find `RO; `All; `Minimal ]
+      ~message:"RO Read in random order"
   in
   let () =
-    match input with
-    | `Find `Seq | `IndexAll | `All ->
-        let () =
-          Log.app (fun l ->
-              l
-                "\n\
-                 Read in sequential order (increasing order of hashes for \
-                 index, increasing order of keys for lmdb)")
-        in
-        Index.read_seq rw
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.read_absent rw)
+      ~triggers:[ `Find `Absent; `All; `Minimal ]
+      ~message:"Read 1000 absent values"
   in
   let () =
-    match input with
-    | `Write `IncKey | `All ->
-        let () = Log.app (fun l -> l "\n Fill in increasing order of keys") in
-        Index.write_seq ()
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.read_seq rw)
+      ~triggers:[ `Find `Seq; `All ]
+      ~message:
+        "Read in sequential order (increasing order of hashes for index, \
+         increasing order of keys for lmdb)"
   in
   let () =
-    match input with
-    | `Write `IncHash | `All ->
-        let () =
-          Log.app (fun l -> l "\n Fill in increasing order of hashes")
-        in
-        Index.write_seq_hash ()
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.write_seq ())
+      ~triggers:[ `Write `IncKey; `All ]
+      ~message:"Fill in increasing order of keys"
   in
   let () =
-    match input with
-    | `Write `DecHash | `All ->
-        let () =
-          Log.app (fun l -> l "\n Fill in decreasing order of hashes")
-        in
-        Index.write_rev_seq_hash ()
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.write_seq_hash ())
+      ~triggers:[ `Write `IncHash; `All ]
+      ~message:"Fill in increasing order of hashes"
   in
   let () =
-    match input with
-    | `Write `Sync | `All ->
-        let () =
-          Log.app (fun l ->
-              l "\n Fill in random order and sync after each write")
-        in
-        Index.write_sync ()
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.write_rev_seq_hash ())
+      ~triggers:[ `Write `IncHash; `All ]
+      ~message:"Fill in decreasing order of hashes"
   in
   let () =
-    match input with
-    | `OverWrite | `All ->
-        let () = Log.app (fun l -> l "\n Overwrite") in
-        Index.overwrite rw
-    | _ -> ()
+    match_input
+      ~bench:(fun () -> Index.write_sync ())
+      ~triggers:[ `Write `Sync; `All ]
+      ~message:"Fill in random order and sync after each write"
+  in
+  let () =
+    match_input
+      ~bench:(fun () -> Index.overwrite rw)
+      ~triggers:[ `OverWrite; `All ] ~message:"OverWrite"
   in
   Index.close rw
+
+open Cmdliner
 
 let input =
   let doc =
