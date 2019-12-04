@@ -6,12 +6,8 @@
 (executable
  (name db_bench)
  (modules db_bench)
- (libraries fmt index.unix common bigstring logs logs.fmt cmdliner))
-
-(executable
- (name lmdb_bench)
- (modules lmdb_bench)
- (libraries fmt common lmdb bigstring rresult logs logs.fmt cmdliner))
+ (libraries fmt index.unix lmdb common bigstring rresult logs logs.fmt
+   cmdliner))
 
 (alias
  (name bench)
