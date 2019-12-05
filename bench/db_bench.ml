@@ -299,6 +299,22 @@ module Lmdb = struct
   let close env = closedir env
 end
 
+let lmdb_benchmarks () =
+  Log.app (fun l -> l "\n Fill in increasing order of keys");
+  Lmdb.fail_on_error Lmdb.write_seq;
+  populate ();
+  Log.app (fun l -> l "\n Fill in random order and sync after each write");
+  Lmdb.fail_on_error Lmdb.write_sync;
+  Log.app (fun l -> l "\n Fill in random order");
+  let lmdb, env = R.get_ok (Lmdb.write_random ()) in
+  Log.app (fun l -> l "\n Read in random order ");
+  Lmdb.read_random lmdb;
+  Log.app (fun l -> l "\n Read in increasing order of keys");
+  Lmdb.read_seq ();
+  Log.app (fun l -> l "\n Overwrite");
+  Lmdb.overwrite lmdb;
+  Lmdb.close env
+
 let init () =
   Common.report ();
   Index.init ();
@@ -314,52 +330,36 @@ let run input =
   Log.app (fun l -> l "\n");
   Log.app (fun l -> l "Fill in random order");
   let rw = Index.write_random () in
-  Log.app (fun l -> l "\n Fill in random order");
-  let lmdb, env = R.get_ok (Lmdb.write_random ()) in
   let bench_list =
     [
       ( (fun () -> Index.read_random rw),
-        [ `Read `RW; `All; `Minimal; `AllIndex ],
+        [ `Read `RW; `All; `Minimal; `Index ],
         "RW Read in random order" );
       ( (fun () -> Index.ro_read_random rw),
-        [ `Read `Ro; `All; `Minimal; `AllIndex ],
+        [ `Read `Ro; `All; `Minimal; `Index ],
         "RO Read in random order" );
       ( (fun () -> Index.read_absent rw),
-        [ `Read `Absent; `All; `Minimal; `AllIndex ],
+        [ `Read `Absent; `All; `Minimal; `Index ],
         "Read 1000 absent values" );
       ( (fun () -> Index.read_seq rw),
-        [ `Read `Seq; `All; `AllIndex ],
+        [ `Read `Seq; `All; `Index ],
         "Read in sequential order (increasing order of hashes for index" );
       ( (fun () -> Index.write_seq ()),
-        [ `Write `IncKey; `All; `AllIndex ],
+        [ `Write `IncKey; `All; `Index ],
         "Fill in increasing order of keys" );
       ( (fun () -> Index.write_seq_hash ()),
-        [ `Write `IncHash; `All; `AllIndex ],
+        [ `Write `IncHash; `All; `Index ],
         "Fill in increasing order of hashes" );
       ( (fun () -> Index.write_rev_seq_hash ()),
-        [ `Write `DecHash; `All; `AllIndex ],
+        [ `Write `DecHash; `All; `Index ],
         "Fill in decreasing order of hashes" );
       ( (fun () -> Index.write_sync ()),
-        [ `Write `Sync; `All; `AllIndex ],
+        [ `Write `Sync; `All; `Index ],
         "Fill in random order and sync after each write" );
       ( (fun () -> Index.overwrite rw),
-        [ `OverWrite; `All; `AllIndex ],
+        [ `OverWrite; `All; `Index ],
         "OverWrite" );
-      ( (fun () -> Lmdb.read_random lmdb),
-        [ `Lmdb `Read; `All; `AllLmdb ],
-        "Read in random order" );
-      ( (fun () -> Lmdb.read_seq ()),
-        [ `Lmdb `ReadSeq; `All; `AllLmdb ],
-        "Read in increasing order of keys for lmdb" );
-      ( (fun () -> Lmdb.overwrite lmdb),
-        [ `Lmdb `OverWrite; `All; `AllLmdb ],
-        "Overwrite" );
-      ( (fun () -> Lmdb.fail_on_error Lmdb.write_sync),
-        [ `Lmdb `WriteSync; `All; `AllLmdb ],
-        "Fill in random order and sync after each write" );
-      ( (fun () -> Lmdb.fail_on_error Lmdb.write_seq),
-        [ `Lmdb `WriteSeq; `All; `AllLmdb ],
-        "Fill in increasing order of keys" );
+      ((fun () -> lmdb_benchmarks ()), [ `Lmdb ], "Run lmdb benchmarks");
     ]
   in
   let match_input ~bench ~triggers ~message =
@@ -373,8 +373,7 @@ let run input =
       (fun (bench, triggers, message) -> match_input ~bench ~triggers ~message)
       bench_list
   in
-  Index.close rw;
-  Lmdb.close env
+  Index.close rw
 
 open Cmdliner
 
@@ -382,15 +381,15 @@ let input =
   let doc =
     "Select which benchmark(s) to run. Available options are: `write`, \
      `write-keys`, `write-hashes`, `write-dec`, `read-rw`, `read-ro` , \
-     `read-seq`,  `read-absent`, `overwrite`, `minimal`or `all`. Default \
-     option is `minimal`"
+     `read-seq`,  `read-absent`, `overwrite`, `minimal`, `index`, `lmdb` or \
+     `all`. Default option is `minimal`"
   in
   let options =
     Arg.enum
       [
         ("all", `All);
-        ("index", `AllIndex);
-        ("lmdb", `AllLmdb);
+        ("index", `Index);
+        ("lmdb", `Lmdb);
         ("minimal", `Minimal);
         ("read-rw", `Read `RW);
         ("read-ro", `Read `RO);
@@ -401,12 +400,6 @@ let input =
         ("write-dec", `Write `DecHash);
         ("write-sync", `Write `Sync);
         ("overwrite", `OverWrite);
-        ("lmdb-write-seq", `Lmdb `WriteSeq);
-        ("lmdb-write-random", `Lmdb `Write);
-        ("lmdb-write-sync", `Lmdb `WriteSync);
-        ("lmdb-read", `Lmdb `Read);
-        ("lmdb-read-seq", `Lmdb `ReadSeq);
-        ("lmdb-overwrite", `Lmdb `Overwrite);
       ]
   in
   Arg.(value & opt options `Minimal & info [ "b"; "bench" ] ~doc)
