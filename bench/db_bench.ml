@@ -342,7 +342,7 @@ let run input =
       ( (fun () -> Index.read_seq rw),
         [ `Read `Seq; `All; `Index ],
         "Read in sequential order (increasing order of hashes for index" );
-      ( (fun () -> Index.write_seq ()),
+      (Index.write_seq),
         [ `Write `IncKey; `All; `Index ],
         "Fill in increasing order of keys" );
       ( (fun () -> Index.write_seq_hash ()),
