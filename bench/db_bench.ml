@@ -84,9 +84,7 @@ module Index = struct
     let ratio_bytes =
       float_of_int stats.bytes_written /. float_of_int (entry_size * nb_entries)
     in
-    let ratio_reads =
-      float_of_int stats.nb_writes /. float_of_int nb_entries
-    in
+    let ratio_reads = float_of_int stats.nb_writes /. float_of_int nb_entries in
     Log.app (fun l ->
         l "\twrite amplification in bytes = %f; in nb of writes = %f; "
           ratio_bytes ratio_reads)
@@ -98,8 +96,8 @@ module Index = struct
     in
     let ratio_reads = float_of_int stats.nb_reads /. float_of_int nb_entries in
     Log.app (fun l ->
-        l "\tread amplification in bytes = %f; in nb of reads = %f "
-          ratio_bytes ratio_reads)
+        l "\tread amplification in bytes = %f; in nb of reads = %f " ratio_bytes
+          ratio_reads)
 
   let init () =
     if Sys.file_exists root then (
@@ -356,9 +354,7 @@ let run input =
       ( (fun () -> Index.write_sync ()),
         [ `Write `Sync; `All; `Index ],
         "Fill in random order and sync after each write" );
-      ( (fun () -> Index.overwrite rw),
-        [ `OverWrite; `All; `Index ],
-        "OverWrite" );
+      ((fun () -> Index.overwrite rw), [ `OverWrite; `All; `Index ], "OverWrite");
       ((fun () -> lmdb_benchmarks ()), [ `Lmdb ], "Run lmdb benchmarks");
     ]
   in
