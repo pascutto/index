@@ -16,13 +16,13 @@ let rec random_new_key tbl =
   let r = Key.v () in
   if Hashtbl.mem tbl r then random_new_key tbl else r
 
+exception Found of string
+
 let random_existing_key tbl =
-  (* The only way to get a random key out of a Hashtbl before
-     4.07.0 is to iterate over all the keys (though tbl is usually small). *)
-  let pick_first k _ = function None -> Some k | p -> p in
-  match Hashtbl.fold pick_first tbl None with
-  | None -> Alcotest.fail "Provided table contains no keys."
-  | Some k -> k
+  try
+    Hashtbl.iter (fun k _ -> raise (Found k)) tbl;
+    Alcotest.fail "Provided table contains no keys."
+  with Found k -> k
 
 let check_entry findf k v =
   match findf k with
@@ -387,7 +387,7 @@ module Filter = struct
     let Context.{ rw; tbl; _ } = Context.full_index () in
     let k = random_existing_key tbl in
     Hashtbl.remove tbl k;
-    Index.filter rw (fun (k', _) -> k <> k');
+    Index.filter rw (fun (k', _) -> not (String.equal k k'));
     check_equivalence rw tbl;
     Index.close rw
 
@@ -396,7 +396,7 @@ module Filter = struct
     let k = random_existing_key tbl in
     Hashtbl.remove tbl k;
     let rw2 = clone ~readonly:false () in
-    Index.filter rw (fun (k', _) -> k <> k');
+    Index.filter rw (fun (k', _) -> not (String.equal k k'));
     check_equivalence rw tbl;
     check_equivalence rw2 tbl;
     Index.close rw;
@@ -406,7 +406,7 @@ module Filter = struct
     let Context.{ rw; tbl; clone } = Context.full_index () in
     let k = random_existing_key tbl in
     Hashtbl.remove tbl k;
-    Index.filter rw (fun (k', _) -> k <> k');
+    Index.filter rw (fun (k', _) -> not (String.equal k k'));
     let rw2 = clone ~readonly:false () in
     check_equivalence rw tbl;
     check_equivalence rw2 tbl;
@@ -417,7 +417,7 @@ module Filter = struct
     let Context.{ rw; tbl; clone } = Context.full_index () in
     let k = random_existing_key tbl in
     Hashtbl.remove tbl k;
-    Index.filter rw (fun (k', _) -> k <> k');
+    Index.filter rw (fun (k', _) -> not (String.equal k k'));
     let rw2 = clone ~fresh:true ~readonly:false () in
     (* rw2 should be empty since it is fresh. *)
     check_equivalence rw2 (Hashtbl.create 0);
