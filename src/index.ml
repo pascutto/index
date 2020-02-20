@@ -94,6 +94,8 @@ module type S = sig
 
   val replace : t -> key -> value -> unit
 
+  val rollback : t -> key -> unit
+
   val iter : (key -> value -> unit) -> t -> unit
 
   val flush : ?with_fsync:bool -> t -> unit
@@ -697,6 +699,25 @@ struct
         Log.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root));
         Thread.return ()
     | Some witness -> merge ?hook ~witness t
+
+  let rollback t key =
+    let t = check_open t in
+    Log.info (fun l -> l "[%s] rollback %a" (Filename.basename t.root) K.pp key);
+    if t.config.readonly then raise RO_not_allowed;
+    match t.log with
+    | None -> ()
+    | Some log -> (
+        let exception Found of int64 in
+        try
+          iter_io_off
+            (fun off e -> if K.equal e.key key then raise (Found off))
+            log.io
+        with Found off ->
+          iter_io
+            ~min:(Int64.add off entry_sizeL)
+            (fun e -> Tbl.remove log.mem e.key)
+            log.io;
+          IO.set_offset log.io off )
 
   let replace t key value =
     let t = check_open t in

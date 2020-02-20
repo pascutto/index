@@ -28,6 +28,8 @@ module type S = sig
 
   val name : t -> string
 
+  val set_offset : t -> int64 -> unit
+
   val offset : t -> int64
 
   val force_offset : t -> int64

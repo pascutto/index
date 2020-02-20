@@ -210,6 +210,10 @@ module IO : Index.IO = struct
 
   let offset t = t.offset
 
+  let set_offset t i =
+    Log.debug (fun m -> m "set_offset: %Ld" i);
+    Raw.Offset.set t.raw i
+
   let force_offset t =
     t.offset <- Raw.Offset.get t.raw;
     t.offset

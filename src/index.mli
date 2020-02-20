@@ -169,6 +169,10 @@ module type S = sig
   (** [replace t k v] binds [k] to [v] in [t], replacing any existing binding of
       [k]. *)
 
+  val rollback : t -> key -> unit
+  (** [rollback t k] truncates [t] to remove all the data in the log part that
+      has been added since [k] (excluded). *)
+
   val iter : (key -> value -> unit) -> t -> unit
   (** Iterates over the index bindings. Limitations:
 
