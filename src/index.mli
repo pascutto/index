@@ -169,6 +169,10 @@ module type S = sig
   (** [replace t k v] binds [k] to [v] in [t], replacing any existing binding of
       [k]. *)
 
+  val filter : t -> (key * value -> bool) -> unit
+  (** [filter t p] triggers a blocking merge where only bindings that satisfy
+      [p] are kept. *)
+
   val iter : (key -> value -> unit) -> t -> unit
   (** Iterates over the index bindings. Limitations:
 
