@@ -624,7 +624,7 @@ struct
       in
       let fan_size =
         match t.index with
-        | None -> Tbl.length log.mem
+        | None -> Array.length log_array
         | Some index ->
             (Int64.to_int (IO.offset index.io) / entry_size)
             + Array.length log_array

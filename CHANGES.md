@@ -8,6 +8,7 @@
 ## Fixed
 
 - Fail when `Index_unix.IO` file version number is not as expected.
+- Fix a bug when `filter` is called before the first `merge`.
 
 # 1.2.0 (2020-02-25)
 
