@@ -112,7 +112,7 @@ struct
 
   let clear' ~hook t =
     let t = check_open t in
-    Log.debug (fun l -> l "clear %S" t.root);
+    Logger.debug (fun l -> l "clear %S" t.root);
     if t.config.readonly then raise RO_not_allowed;
     t.pending_cancel <- true;
     hook `Abort_signalled;
@@ -138,25 +138,25 @@ struct
   let clear = clear' ~hook:(fun _ -> ())
 
   let flush_instance ?no_async ?no_callback ?(with_fsync = false) instance =
-    Log.debug (fun l ->
+    Logger.debug (fun l ->
         l "[%s] flushing instance" (Filename.basename instance.root));
     if instance.config.readonly then raise RO_not_allowed;
     instance.log
     |> may (fun log ->
-           Log.debug (fun l ->
+           Logger.debug (fun l ->
                l "[%s] flushing log" (Filename.basename instance.root));
            IO.flush ?no_callback ~with_fsync log.io);
 
     match (no_async, instance.log_async) with
     | Some (), _ | None, None -> ()
     | None, Some log ->
-        Log.debug (fun l ->
+        Logger.debug (fun l ->
             l "[%s] flushing log_async" (Filename.basename instance.root));
         IO.flush ?no_callback ~with_fsync log.io
 
   let flush ?no_callback ?(with_fsync = false) t =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] flush" (Filename.basename t.root));
+    Logger.info (fun l -> l "[%s] flush" (Filename.basename t.root));
     Mutex.with_lock t.rename_lock (fun () ->
         flush_instance ?no_callback ~with_fsync t)
 
@@ -245,7 +245,7 @@ struct
       end)
 
   let try_load_log t path =
-    Log.debug (fun l ->
+    Logger.debug (fun l ->
         l "[%s] checking on-disk %s file" (Filename.basename t.root)
           (Filename.basename path));
     if Sys.file_exists path then (
@@ -285,7 +285,7 @@ struct
       else t.index <- Some { fan_out; io }
 
   let sync_log ?(hook = fun _ -> ()) t =
-    Log.debug (fun l ->
+    Logger.debug (fun l ->
         l "[%s] checking for changes on disk" (Filename.basename t.root));
     (match t.log with
     | None -> t.log <- try_load_log t (log_path t.root)
@@ -311,24 +311,24 @@ struct
         let h = IO.Header.get log.io in
         hook `After_offset_read;
         if t.generation <> h.generation then (
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] generation has changed, reading log and index from disk"
                 (Filename.basename t.root));
           t.generation <- h.generation;
           sync_log_entries log;
           sync_index ~generation:h.generation t)
         else if log_offset < h.offset then (
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] new entries detected, reading log from disk"
                 (Filename.basename t.root));
           sync_log_entries ~min:log_offset log)
         else
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] no changes detected" (Filename.basename t.root))
 
   let v_no_cache ?(flush_callback = fun () -> ()) ~throttle ~fresh ~readonly
       ~log_size root =
-    Log.debug (fun l ->
+    Logger.debug (fun l ->
         l "[%s] not found in cache, creating a new instance"
           (Filename.basename root));
     let writer_lock =
@@ -352,7 +352,7 @@ struct
             log_path
         in
         let entries = Int64.div (IO.offset io) entry_sizeL in
-        Log.debug (fun l ->
+        Logger.debug (fun l ->
             l "[%s] log file detected. Loading %Ld entries"
               (Filename.basename root) entries);
         let mem = Tbl.create (Int64.to_int entries) in
@@ -371,7 +371,7 @@ struct
           log_async_path
       in
       let entries = Int64.div (IO.offset io) entry_sizeL in
-      Log.debug (fun l ->
+      Logger.debug (fun l ->
           l "[%s] log_async file detected. Loading %Ld entries"
             (Filename.basename root) entries);
       (* If we are not in fresh mode, we move the contents of log_async to
@@ -401,13 +401,13 @@ struct
         let entries = Int64.div (IO.offset io) entry_sizeL in
         if entries = 0L then None
         else (
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] index file detected. Loading %Ld entries"
                 (Filename.basename root) entries);
           let fan_out = Fan.import ~hash_size:K.hash_size (IO.get_fanout io) in
           Some { fan_out; io })
       else (
-        Log.debug (fun l ->
+        Logger.debug (fun l ->
             l "[%s] no index file detected." (Filename.basename root));
         None)
     in
@@ -440,7 +440,7 @@ struct
       Cache.add cache (root, readonly) instance;
       ref (Some instance)
     in
-    Log.info (fun l ->
+    Logger.info (fun l ->
         l "[%s] v fresh=%b readonly=%b log_size=%d" (Filename.basename root)
           fresh readonly log_size);
     match
@@ -448,7 +448,7 @@ struct
     with
     | None, _ -> new_instance ()
     | Some _, false ->
-        Log.debug (fun l ->
+        Logger.debug (fun l ->
             l "[%s] does not exist anymore, cleaning up the fd cache"
               (Filename.basename root));
         Cache.remove cache (root, true);
@@ -460,7 +460,7 @@ struct
             Cache.remove cache (root, readonly);
             new_instance ()
         | _ ->
-            Log.debug (fun l ->
+            Logger.debug (fun l ->
                 l "[%s] found in cache" (Filename.basename root));
             t.open_instances <- t.open_instances + 1;
             if readonly then sync_log t;
@@ -480,12 +480,12 @@ struct
     let find_if_exists ~name ~find db () =
       match db with
       | None ->
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] %s is not present" (Filename.basename t.root) name);
           raise Not_found
       | Some e ->
           let ans = find e key in
-          Log.debug (fun l ->
+          Logger.debug (fun l ->
               l "[%s] found in %s" (Filename.basename t.root) name);
           ans
     in
@@ -502,12 +502,12 @@ struct
 
   let find t key =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] find %a" (Filename.basename t.root) K.pp key);
+    Logger.info (fun l -> l "[%s] find %a" (Filename.basename t.root) K.pp key);
     find_instance t key
 
   let mem t key =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] mem %a" (Filename.basename t.root) K.pp key);
+    Logger.info (fun l -> l "[%s] mem %a" (Filename.basename t.root) K.pp key);
     match find_instance t key with _ -> true | exception Not_found -> false
 
   let append_buf_fanout fan_out hash buf_str dst_io =
@@ -580,7 +580,7 @@ struct
       ~witness t =
     let yield () = check_pending_cancel t in
     Mutex.lock t.merge_lock;
-    Log.info (fun l -> l "[%s] merge" (Filename.basename t.root));
+    Logger.info (fun l -> l "[%s] merge" (Filename.basename t.root));
     Stats.incr_nb_merge ();
     let log_async =
       let io =
@@ -716,11 +716,11 @@ struct
 
   let force_merge ?hook t =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] forced merge" (Filename.basename t.root));
+    Logger.info (fun l -> l "[%s] forced merge" (Filename.basename t.root));
     let witness = Mutex.with_lock t.rename_lock (fun () -> get_witness t) in
     match witness with
     | None ->
-        Log.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root));
+        Logger.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root));
         Thread.return `Completed
     | Some witness -> merge ?hook ~witness t
 
@@ -737,7 +737,7 @@ struct
   let replace' ?hook t key value =
     let t = check_open t in
     Stats.incr_nb_replace ();
-    Log.info (fun l ->
+    Logger.info (fun l ->
         l "[%s] replace %a %a" (Filename.basename t.root) K.pp key V.pp value);
     if t.config.readonly then raise RO_not_allowed;
     let log_limit_reached =
@@ -774,12 +774,12 @@ struct
 
   let filter t f =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] filter" (Filename.basename t.root));
+    Logger.info (fun l -> l "[%s] filter" (Filename.basename t.root));
     if t.config.readonly then raise RO_not_allowed;
     let witness = Mutex.with_lock t.rename_lock (fun () -> get_witness t) in
     match witness with
     | None ->
-        Log.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root))
+        Logger.debug (fun l -> l "[%s] index is empty" (Filename.basename t.root))
     | Some witness -> (
         match Thread.await (merge ~blocking:true ~filter:f ~witness t) with
         | Ok (`Aborted | `Completed) -> ()
@@ -789,7 +789,7 @@ struct
 
   let iter f t =
     let t = check_open t in
-    Log.info (fun l -> l "[%s] iter" (Filename.basename t.root));
+    Logger.info (fun l -> l "[%s] iter" (Filename.basename t.root));
     match t.log with
     | None -> ()
     | Some log ->
@@ -805,16 +805,16 @@ struct
 
   let close' ~hook it =
     match !it with
-    | None -> Log.info (fun l -> l "close: instance already closed")
+    | None -> Logger.info (fun l -> l "close: instance already closed")
     | Some t ->
-        Log.info (fun l -> l "[%s] close" (Filename.basename t.root));
+        Logger.info (fun l -> l "[%s] close" (Filename.basename t.root));
         t.pending_cancel <- true;
         hook `Abort_signalled;
         Mutex.with_lock t.merge_lock (fun () ->
             it := None;
             t.open_instances <- t.open_instances - 1;
             if t.open_instances = 0 then (
-              Log.debug (fun l ->
+              Logger.debug (fun l ->
                   l "[%s] last open instance: closing the file descriptor"
                     (Filename.basename t.root));
               if not t.config.readonly then flush_instance ~with_fsync:true t;
@@ -832,7 +832,7 @@ struct
     let f t =
       Stats.incr_nb_sync ();
       let t = check_open t in
-      Log.info (fun l -> l "[%s] sync" (Filename.basename t.root));
+      Logger.info (fun l -> l "[%s] sync" (Filename.basename t.root));
       if t.config.readonly then sync_log ?hook t else raise RW_not_allowed
     in
     Stats.sync_with_timer (fun () -> f t)

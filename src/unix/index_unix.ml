@@ -17,7 +17,7 @@ all copies or substantial portions of the Software. *)
 
 let src = Logs.Src.create "index_unix" ~doc:"Index_unix"
 
-module Log = (val Logs.src_log src : Logs.LOG)
+module Logger = (val Logs.src_log src : Logs.LOG)
 
 exception RO_not_allowed
 
@@ -50,7 +50,7 @@ module IO : Index.IO = struct
     if buf = "" then ()
     else (
       (match no_callback with Some () -> () | None -> t.flush_callback ());
-      Log.debug (fun l -> l "[%s] flushing %d bytes" t.file (String.length buf));
+      Logger.debug (fun l -> l "[%s] flushing %d bytes" t.file (String.length buf));
       Raw.unsafe_write t.raw ~off:t.flushed buf;
       Raw.Offset.set t.raw offset;
       assert (t.flushed ++ Int64.of_int (String.length buf) = t.header ++ offset);
@@ -90,7 +90,7 @@ module IO : Index.IO = struct
 
   let get_generation t =
     let i = Raw.Generation.get t.raw in
-    Log.debug (fun m -> m "get_generation: %Ld" i);
+    Logger.debug (fun m -> m "get_generation: %Ld" i);
     i
 
   let get_fanout t = Raw.Fan.get t.raw
@@ -109,12 +109,12 @@ module IO : Index.IO = struct
       let Raw.Header.{ offset; generation; _ } = Raw.Header.get t.raw in
       t.offset <- offset;
       let headers = { offset; generation } in
-      Log.debug (fun m -> m "[%s] get_headers: %a" t.file pp headers);
+      Logger.debug (fun m -> m "[%s] get_headers: %a" t.file pp headers);
       headers
 
     let set t { offset; generation } =
       let version = current_version in
-      Log.debug (fun m ->
+      Logger.debug (fun m ->
           m "[%s] set_header %a" t.file pp { offset; generation });
       Raw.Header.(set t.raw { offset; version; generation })
   end
@@ -228,7 +228,7 @@ module IO : Index.IO = struct
     let line = input_line ic in
     close_in ic;
     let pid = int_of_string line in
-    Log.err (fun l ->
+    Logger.err (fun l ->
         l
           "Cannot lock %s: index is already opened in write mode by PID %d. \
            Current PID is %d."
@@ -236,13 +236,13 @@ module IO : Index.IO = struct
     raise (Locked path)
 
   let lock path =
-    Log.debug (fun l -> l "Locking %s" path);
+    Logger.debug (fun l -> l "Locking %s" path);
     match unsafe_lock Unix.F_TLOCK path with
     | Some fd -> { path; fd }
     | None -> err_rw_lock path
 
   let unlock { path; fd } =
-    Log.debug (fun l -> l "Unlocking %s" path);
+    Logger.debug (fun l -> l "Unlocking %s" path);
     Unix.close fd
 end
 
