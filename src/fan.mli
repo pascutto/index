@@ -16,6 +16,11 @@ The above copyright notice and this permission notice shall be included in
 all copies or substantial portions of the Software. *)
 
 type 'a t
+(*@ ephemeral
+    mutable model max_off: int64
+    mutable model max_hash: int
+    invariant max_hash >= 0
+    invariant max_off >= Int64.zero *)
 
 val equal : 'a t -> 'a t -> bool
 (** The equality function for fanouts. *)
@@ -33,6 +38,12 @@ val search : [ `Read ] t -> int -> int64 * int64
 val update : [ `Write ] t -> int -> int64 -> unit
 (** [update t hash off] updates [t] so that [hash] is registered to be at offset
     [off]. *)
+(*@ update t k off
+    requires off >= t.max_off
+    requires k >= t.max_hash
+    modifies t
+    ensures t.max_off = off
+    ensures t.max_hash = k *)
 
 val finalize : [ `Write ] t -> [ `Read ] t
 (** Finalizes the update of the fanout. This is mandatory before any [search]
