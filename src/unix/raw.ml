@@ -2,12 +2,25 @@ let ( ++ ) = Int63.add
 
 module Stats = Index.Stats
 
+external set_64 : Bytes.t -> int -> int64 -> unit = "%caml_string_set64u"
+
+external get_64 : string -> int -> int64 = "%caml_string_get64"
+
+external swap64 : int64 -> int64 = "%bswap_int64"
+
 let encode_int63 i =
-  let b = Bytes.create Int63.encoded_size in
-  Int63.encode b ~off:0 i;
+  let set_uint64 s off v =
+    if not Sys.big_endian then set_64 s off (swap64 v) else set_64 s off v
+  in
+  let b = Bytes.create 8 in
+  set_uint64 b 0 (Int63.to_int64 i);
   Bytes.unsafe_to_string b
 
-let decode_int63 buf = Int63.decode buf ~off:0
+let decode_int63 buf =
+  let get_uint64 s off =
+    if not Sys.big_endian then swap64 (get_64 s off) else get_64 s off
+  in
+  get_uint64 buf 0 |> Int63.of_int64
 
 type t = { fd : Unix.file_descr } [@@unboxed]
 
