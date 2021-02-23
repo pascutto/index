@@ -8,12 +8,11 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
 
     (** This module never makes persistent changes *)
     let v =
-      v ~fresh:false ~readonly:true ?flush_callback:None ~generation:0L
-        ~fan_size:0L
-
-    let page_size = Int64.(mul (of_int Entry.encoded_size) 1000L)
+      v ~fresh:false ~readonly:true ?flush_callback:None ~generation:Int63.zero
+        ~fan_size:Int63.zero
 
     let iter ?min ?max f =
+      let page_size = Int63.of_int (Entry.encoded_size * 1000) in
       iter ?min ?max ~page_size (fun ~off ~buf ~buf_off ->
           let entry = Entry.decode buf buf_off in
           f off entry;
@@ -73,7 +72,11 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
       with_io path @@ fun io ->
       let IO.Header.{ offset; generation } = IO.Header.get io in
       let size = Bytes (IO.size io) in
-      { size; offset; generation }
+      {
+        size;
+        offset = Int63.to_int64 offset;
+        generation = Int63.to_int64 generation;
+      }
 
     let run ~root =
       Logs.app (fun f -> f "Getting statistics for store: `%s'@," root);
@@ -106,7 +109,7 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
           Int64.(add central_offset (mul (of_int index) encoded_sizeL)))
       |> List.filter (fun off -> Int64.compare off 0L >= 0)
       |> List.map (fun off ->
-             let entry = IO.read_entry io off in
+             let entry = IO.read_entry io (Int63.of_int64 off) in
              let highlight =
                if off = central_offset then Fmt.(styled (`Fg `Red)) else Fun.id
              in
@@ -116,7 +119,7 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
     let run ~root =
       let context = 2 in
       let io = IO.v (Layout.data ~root) in
-      let io_offset = IO.offset io in
+      let io_offset = IO.offset io |> Int63.to_int64 in
       if Int64.compare io_offset encoded_sizeL < 0 then (
         if not (Int64.equal io_offset 0L) then
           Fmt.failwith
@@ -124,7 +127,7 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
              = %d }"
             io_offset Entry.encoded_size)
       else
-        let first_entry = IO.read_entry io 0L in
+        let first_entry = IO.read_entry io Int63.zero in
         let previous = ref first_entry in
         Format.eprintf "\n%!";
         Progress_unix.(
@@ -134,12 +137,12 @@ module Make (K : Data.Key) (V : Data.Value) (IO : Io.S) = struct
           |> with_reporters)
         @@ fun report ->
         io
-        |> IO.iter ~min:encoded_sizeL (fun off e ->
+        |> IO.iter ~min:(Int63.of_int64 encoded_sizeL) (fun off e ->
                report encoded_sizeL;
                if !previous.key_hash > e.key_hash then
                  Log.err (fun f ->
                      f "Found non-monotonic region:@,%a@,"
-                       (print_window_around off io context)
+                       (print_window_around (Int63.to_int64 off) io context)
                        ());
                previous := e)
 

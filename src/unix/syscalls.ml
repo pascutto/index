@@ -1,10 +1,10 @@
-external pread : Unix.file_descr -> int64 -> bytes -> int -> int -> int
+external pread : Unix.file_descr -> Int63.t -> bytes -> int -> int -> int
   = "caml_index_pread"
 
 let pread ~fd ~fd_offset ~buffer ~buffer_offset ~length =
   pread fd fd_offset buffer buffer_offset length
 
-external pwrite : Unix.file_descr -> int64 -> bytes -> int -> int -> int
+external pwrite : Unix.file_descr -> Int63.t -> bytes -> int -> int -> int
   = "caml_index_pwrite"
 
 let pwrite ~fd ~fd_offset ~buffer ~buffer_offset ~length =
