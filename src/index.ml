@@ -534,6 +534,8 @@ struct
         match yield () with
         | `Abort -> `Aborted
         | `Continue ->
+            Log.info (fun m ->
+                m "XXX merge index offset %a" Int63.pp index_offset);
             Thread.yield ();
             if
               log_i >= Array.length log
