@@ -490,7 +490,9 @@ struct
     if log_i >= Array.length log then log_i
     else
       let v = log.(log_i) in
-      if v.Entry.key_hash >= hash_e then log_i
+      if v.Entry.key_hash >= hash_e then (
+        Log.info (fun m -> m "XXX merge log entry %d" log_i);
+        log_i)
       else (
         append_entry_fanout fan_out v dst_io;
         (merge_from_log [@tailcall]) fan_out log (log_i + 1) hash_e dst_io)
@@ -534,8 +536,6 @@ struct
         match yield () with
         | `Abort -> `Aborted
         | `Continue ->
-            Log.info (fun m ->
-                m "XXX merge index offset %a" Int63.pp index_offset);
             Thread.yield ();
             if
               log_i >= Array.length log
