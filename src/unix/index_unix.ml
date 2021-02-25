@@ -26,36 +26,22 @@ let current_version = "00000001"
 module Stats = Index.Stats
 
 module IO : Index.IO = struct
-  external ( ++ ) : int64 -> int64 -> int64 = "%int64_add"
+  let ( ++ ) = Int64.add
 
-  external ( -- ) : int64 -> int64 -> int64 = "%int64_sub"
+  let ( -- ) = Int64.sub
 
   type t = {
     mutable file : string;
     mutable header : int64;
-    mutable raw : Raw.t;
     mutable offset : int64;
-    mutable flushed : int64;
     mutable fan_size : int64;
+    buffer : Iobuffer.t;
     readonly : bool;
-    buf : Buffer.t;
-    flush_callback : unit -> unit;
   }
 
   let flush ?no_callback ?(with_fsync = false) t =
     if t.readonly then raise RO_not_allowed;
-    let buf = Buffer.contents t.buf in
-    let offset = t.offset in
-    Buffer.clear t.buf;
-    if buf = "" then ()
-    else (
-      (match no_callback with Some () -> () | None -> t.flush_callback ());
-      Log.debug (fun l -> l "[%s] flushing %d bytes" t.file (String.length buf));
-      Raw.unsafe_write t.raw ~off:t.flushed buf;
-      Raw.Offset.set t.raw offset;
-      assert (t.flushed ++ Int64.of_int (String.length buf) = t.header ++ offset);
-      t.flushed <- offset ++ t.header);
-    if with_fsync then Raw.fsync t.raw
+    Iobuffer.flush t.buffer
 
   let rename ~src ~dst =
     flush ~with_fsync:true src;
@@ -77,7 +63,7 @@ module IO : Index.IO = struct
 
   let append t buf =
     if t.readonly then raise RO_not_allowed;
-    Buffer.add_string t.buf buf;
+    Buffer.add_string ~write:(Raw.unsafe_write t.raw ~off:t.flushed) t.buf buf;
     let len = Int64.of_int (String.length buf) in
     t.offset <- t.offset ++ len;
     if t.offset -- t.flushed > auto_flush_limit then flush t
@@ -163,7 +149,7 @@ module IO : Index.IO = struct
         raw;
         readonly;
         fan_size;
-        buf = Buffer.create (4 * 1024);
+        buf = Buffer.create ~flush_callback (4 * 1024);
         flushed = header ++ offset;
         flush_callback;
       }
