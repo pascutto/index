@@ -9,15 +9,11 @@ module type Key = sig
   val equal : t -> t -> bool
   (** The equality function for keys. *)
 
-  val hash : t -> int
-  (** Note: Unevenly distributed hash functions may result in performance drops. *)
+  type metric
 
-  val hash_size : int
-  (** The number of bits necessary to encode the maximum output value of
-      {!hash}. `Hashtbl.hash` uses 30 bits.
+  val metric : t -> metric
 
-      Overestimating the [hash_size] will result in performance drops;
-      underestimation will result in undefined behavior. *)
+  val compare : metric -> metric -> int
 
   val encode : t -> string
   (** [encode] is an encoding function. The resultant encoded values must have
@@ -48,8 +44,7 @@ module Entry = struct
 
     type value
 
-    type t = private { key : key; key_hash : int; value : value }
-    [@@deriving repr]
+    type t = private { key : key; value : value } [@@deriving repr]
 
     val v : key -> value -> t
 
@@ -57,7 +52,7 @@ module Entry = struct
 
     val decode : string -> int -> t
 
-    val decode_key : string -> int -> key * int
+    val decode_key : string -> int -> key
 
     val decode_value : string -> int -> value
 
@@ -68,20 +63,20 @@ module Entry = struct
 
   module Make (K : Key) (V : Value) :
     S with type key := K.t and type value := V.t = struct
-    type t = { key : K.t; key_hash : int; value : V.t } [@@deriving repr]
+    type t = { key : K.t; value : V.t } [@@deriving repr]
 
-    let v key value = { key; key_hash = K.hash key; value }
+    let v key value = { key; value }
 
     let encoded_size = K.encoded_size + V.encoded_size
 
     let decode string off =
       let key = K.decode string off in
       let value = V.decode string (off + K.encoded_size) in
-      { key; key_hash = K.hash key; value }
+      { key; value }
 
     let decode_key string off =
       let key = K.decode string off in
-      (key, K.hash key)
+      key
 
     let decode_value string off = V.decode string (off + K.encoded_size)
 
@@ -109,10 +104,6 @@ end) : sig
   include Value with type t := string
 end = struct
   type t = string [@@deriving repr]
-
-  let hash = Hashtbl.hash
-
-  let hash_size = 30
 
   let encode s = s
 
